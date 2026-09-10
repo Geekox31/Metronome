@@ -4,11 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0d14">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Accordeur">
+  <meta name="format-detection" content="telephone=no">
   <meta name="description" content="Accordeur chromatique de précision pour orchestre d’harmonie : transposition automatique par instrument, diapason réglable, générateur de sons, défis ludiques.">
   <title>Accordeur d’Harmonie</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -33,6 +38,7 @@
     <div class="chips">
       <button class="chip" id="chipInstrument" title="Changer d’instrument">Clarinette (Si♭)</button>
       <button class="chip chip-gold" id="chipA4" title="Régler le diapason">La = 442 Hz</button>
+      <button class="chip chip-icon" id="btnFullscreen" title="Plein écran" aria-label="Plein écran">⛶</button>
     </div>
   </header>
 
@@ -88,15 +94,15 @@
     <aside class="panels">
 
       <!-- Instrument -->
-      <section class="card panel" id="panelInstrument">
-        <h2><span class="num">1</span> Mon instrument</h2>
+      <details class="card panel" id="panelInstrument" open>
+        <summary><h2><span class="num">1</span> Mon instrument</h2><span class="chev" aria-hidden="true"></span></summary>
         <select id="instrumentSelect" class="select" aria-label="Instrument"></select>
         <p class="hint" id="transposeInfo"></p>
-      </section>
+      </details>
 
       <!-- Référence -->
-      <section class="card panel" id="panelReference">
-        <h2><span class="num">2</span> Diapason &amp; cible</h2>
+      <details class="card panel" id="panelReference" open>
+        <summary><h2><span class="num">2</span> Diapason &amp; cible</h2><span class="chev" aria-hidden="true"></span></summary>
         <div class="row">
           <label for="a4Range">La de référence</label>
           <div class="a4-value"><input type="number" id="a4Input" min="415" max="466" step="0.1" value="442"> Hz</div>
@@ -124,11 +130,11 @@
           <select id="targetPc" class="select select-inline"></select>
         </div>
         <p class="hint" id="targetHint"></p>
-      </section>
+      </details>
 
       <!-- Générateur -->
-      <section class="card panel" id="panelTone">
-        <h2><span class="num">3</span> Son de référence</h2>
+      <details class="card panel" id="panelTone" open>
+        <summary><h2><span class="num">3</span> Son de référence</h2><span class="chev" aria-hidden="true"></span></summary>
         <div class="btn-row">
           <button class="btn" id="btnPlayA">▶ La (diapason)</button>
           <button class="btn btn-gold" id="btnPlayBb">▶ Si♭ d’accord</button>
@@ -150,11 +156,11 @@
           <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5" style="flex:1">
         </div>
         <p class="hint">Astuce : avec un casque, le bourdon ne perturbe pas la détection.</p>
-      </section>
+      </details>
 
       <!-- Jeu -->
-      <section class="card panel panel-game" id="panelGame">
-        <h2><span class="num">4</span> Entraînement</h2>
+      <details class="card panel panel-game" id="panelGame" open>
+        <summary><h2><span class="num">4</span> Entraînement</h2><span class="chev" aria-hidden="true"></span></summary>
         <div class="stats">
           <div class="stat"><span class="stat-value" id="statStreak">0</span><span class="stat-label">Série</span></div>
           <div class="stat"><span class="stat-value" id="statBest">0</span><span class="stat-label">Record</span></div>
@@ -174,11 +180,11 @@
             <button class="btn" id="btnChallengeStop" hidden>Abandonner</button>
           </div>
         </div>
-      </section>
+      </details>
 
       <!-- Réglages -->
-      <section class="card panel" id="panelSettings">
-        <h2><span class="num">5</span> Réglages</h2>
+      <details class="card panel" id="panelSettings" open>
+        <summary><h2><span class="num">5</span> Réglages</h2><span class="chev" aria-hidden="true"></span></summary>
         <div class="row">
           <label for="tolerance">Tolérance</label>
           <div class="segmented small" id="toleranceSeg">
@@ -217,6 +223,10 @@
           <input type="checkbox" id="chkSound" checked class="switch">
         </div>
         <div class="row">
+          <label for="chkHaptics">Vibration à la réussite</label>
+          <input type="checkbox" id="chkHaptics" checked class="switch">
+        </div>
+        <div class="row">
           <label for="chkStrobe">Anneau stroboscopique</label>
           <input type="checkbox" id="chkStrobe" checked class="switch">
         </div>
@@ -224,9 +234,17 @@
           <button class="btn btn-sm" id="btnStop">Couper le micro</button>
           <button class="btn btn-sm" id="btnReset">Réinitialiser les statistiques</button>
         </div>
-      </section>
+      </details>
     </aside>
   </main>
+
+  <nav class="quickbar" id="quickbar" aria-label="Actions rapides">
+    <button id="qbInstrument" title="Instrument"><span class="qb-icon">🎺</span><span class="qb-label" id="qbInstrumentLabel">Instrument</span></button>
+    <button id="qbA4" title="Diapason"><span class="qb-big" id="qbA4Value">442</span><span class="qb-label">Hz</span></button>
+    <button id="qbTarget" title="Verrouiller la cible sur le Si♭ d’accord"><span class="qb-icon">◎</span><span class="qb-label">Cible Si♭</span></button>
+    <button id="qbPlayBb" title="Jouer le Si♭ d’accord"><span class="qb-icon">▶</span><span class="qb-label">Si♭</span></button>
+    <button id="qbDrone" title="Bourdon"><span class="qb-icon">◉</span><span class="qb-label">Bourdon</span></button>
+  </nav>
 
   <footer class="foot">
     <p>Fonctionne hors ligne dans le navigateur · aucun son n’est enregistré · Web Audio API</p>

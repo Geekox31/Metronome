@@ -17,8 +17,8 @@
   const DEFAULTS = {
     instrument: 'clar-sib', a4: 442, notation: 'fr', octaves: 'fr', accidentals: 'flat',
     tolerance: 5, gate: -58, targetMode: 'auto', targetPc: 10, timbre: 'cuivre', volume: 0.5,
-    sounds: true, strobe: true, tonePc: 0, toneOctave: null,
-    bestStreak: 0, bestChallenge: null
+    sounds: true, strobe: true, haptics: true, tonePc: 0, toneOctave: null,
+    bestStreak: 0, bestChallenge: null, panels: null
   };
   const S = Object.assign({}, DEFAULTS);
   try { Object.assign(S, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')); } catch (e) { /* ignore */ }
@@ -66,13 +66,39 @@
     challengeBest: $('#challengeBest'), challengeSteps: $('#challengeSteps'), challengeCurrent: $('#challengeCurrent'),
     btnChallenge: $('#btnChallenge'), btnChallengeStop: $('#btnChallengeStop'),
     toleranceSeg: $('#toleranceSeg'), gate: $('#gate'), notationSeg: $('#notationSeg'), accidentalSeg: $('#accidentalSeg'),
-    octaveSeg: $('#octaveSeg'), chkSound: $('#chkSound'), chkStrobe: $('#chkStrobe'), btnStop: $('#btnStop'), btnReset: $('#btnReset')
+    octaveSeg: $('#octaveSeg'), chkSound: $('#chkSound'), chkHaptics: $('#chkHaptics'), chkStrobe: $('#chkStrobe'), btnStop: $('#btnStop'), btnReset: $('#btnReset'),
+    btnFullscreen: $('#btnFullscreen'), qbInstrument: $('#qbInstrument'), qbInstrumentLabel: $('#qbInstrumentLabel'), qbA4: $('#qbA4'),
+    qbA4Value: $('#qbA4Value'), qbTarget: $('#qbTarget'), qbPlayBb: $('#qbPlayBb'), qbDrone: $('#qbDrone')
   };
+  const isMobileLayout = () => window.matchMedia('(max-width: 1039px)').matches;
 
   /* ------------------------------------------------------------------
      Audio
      ------------------------------------------------------------------ */
   let audioCtx = null, analyser = null, stream = null, detector = null, timeBuf = null, running = false;
+  let worker = null, workerBusy = false, workerId = 0, pendingNow = 0;
+
+  /* Le calcul YIN tourne dans un Web Worker (fil séparé) : l'interface reste fluide
+     même sur un smartphone modeste. Repli sur le fil principal si le worker est indisponible. */
+  function initWorker() {
+    if (worker || typeof Worker === 'undefined') return;
+    try {
+      worker = new Worker('js/pitch-worker.js');
+      worker.onmessage = e => { workerBusy = false; onDetected(e.data, pendingNow); };
+      worker.onerror = () => { worker = null; workerBusy = false; };
+    } catch (e) { worker = null; }
+  }
+
+  /* Maintien de l'écran allumé pendant l'accordage (Android / Chrome / Safari 16.4+) */
+  let wakeLock = null;
+  async function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+  function releaseWakeLock() { if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; } }
   const getCtx = () => {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     return audioCtx;
@@ -104,8 +130,10 @@
       hp.connect(analyser);
       timeBuf = new Float32Array(analyser.fftSize);
       detector = new YinDetector(ctx.sampleRate, analyser.fftSize, 0.15);
+      initWorker();
       running = true;
       el.startOverlay.classList.add('hidden');
+      requestWakeLock();
     } catch (e) {
       const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
       showStartError(denied
@@ -119,6 +147,7 @@
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null; analyser = null;
     det.lastVoiced = -1e9;
+    releaseWakeLock();
     el.startOverlay.classList.remove('hidden');
   }
 
@@ -146,11 +175,27 @@
   }
 
   function detectStep(now) {
-    analyser.getFloatTimeDomainData(timeBuf);
     const i = inst();
     const fmin = Math.max(24, MusicMath.midiToFreq(i.low - 3, S.a4));
     const fmax = Math.min(4600, MusicMath.midiToFreq(i.high + 3, S.a4));
-    const r = detector.detect(timeBuf, fmin, fmax);
+    const gateRms = Math.pow(10, (S.gate - 6) / 20);   // pré-filtre : pas d'analyse en silence
+    if (worker) {
+      if (workerBusy) return;
+      const buf = new Float32Array(analyser.fftSize);
+      analyser.getFloatTimeDomainData(buf);
+      workerBusy = true; pendingNow = now;
+      worker.postMessage({ buf, sampleRate: audioCtx.sampleRate, fmin, fmax, gateRms, id: ++workerId }, [buf.buffer]);
+    } else {
+      analyser.getFloatTimeDomainData(timeBuf);
+      onDetected(detector.detect(timeBuf, fmin, fmax, gateRms), now);
+    }
+  }
+
+  function onDetected(r, now) {
+    if (!running) return;
+    const i = inst();
+    const fmin = Math.max(24, MusicMath.midiToFreq(i.low - 3, S.a4));
+    const fmax = Math.min(4600, MusicMath.midiToFreq(i.high + 3, S.a4));
     det.rmsDb = 20 * Math.log10(r.rms + 1e-9);
     let freq = null;
     if (det.rmsDb > S.gate && r.freq && r.clarity > 0.6 && r.freq >= fmin && r.freq <= fmax) freq = r.freq;
@@ -218,6 +263,7 @@
     updateStats();
     spawnConfetti();
     if (S.sounds) tone.chime();
+    if (S.haptics && navigator.vibrate) { try { navigator.vibrate([30, 40, 30]); } catch (e) { /* ignore */ } }
     if (challenge.active) {
       challenge.index++;
       if (challenge.index >= challenge.pcs.length) finishChallenge();
@@ -301,7 +347,7 @@
   const fctx = el.fx.getContext('2d');
   const tctx = el.trace.getContext('2d');
   function sizeCanvas(cv) {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);   // 2× suffit et ménage le GPU des téléphones
     const r = cv.getBoundingClientRect();
     const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
@@ -312,36 +358,36 @@
   const COLORS = { green: '94,227,154', amber: '245,196,81', red: '255,107,122', gold: '214,184,107', ivory: '244,239,228' };
   const zoneColor = c => Math.abs(c) <= S.tolerance ? COLORS.green : Math.abs(c) <= 20 ? COLORS.amber : COLORS.red;
 
-  function drawGauge(voiced, inTune) {
-    const { W, H, dpr } = sizeCanvas(el.gauge);
-    const c = gctx;
+  /* Couche statique (segments éteints, graduations, étiquettes) dessinée une seule fois
+     par taille / tolérance, puis recopiée à chaque image : le coût par image reste minime. */
+  const staticLayer = { canvas: document.createElement('canvas'), key: '' };
+  function drawStaticLayer(W, H, dpr) {
+    const key = `${W}x${H}x${dpr}x${S.tolerance}`;
+    if (staticLayer.key === key) return;
+    staticLayer.key = key;
+    const cv = staticLayer.canvas;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const c = cv.getContext('2d');
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.clearRect(0, 0, W, H);
     const cx = W / 2, cy = H * 0.57, R = W * 0.37;
-    const needle = smooth.needle;
-
-    // Segments de l'arc (allumés jusqu'à l'aiguille)
     c.lineCap = 'butt';
     c.lineWidth = Math.max(8, W * 0.028);
-    const seg = 100, gap = 0.12;
-    for (let i = 0; i < seg; i++) {
-      const cv = -50 + i + 0.5;
+    const gap = 0.12;
+    for (let i = 0; i < 100; i++) {
+      const v = -50 + i + 0.5;
       const a0 = centsToAngle(-50 + i), a1 = centsToAngle(-50 + i + 1);
       const stepA = a1 - a0;
-      const lit = voiced && ((needle >= 0 && cv >= -0.6 && cv <= needle) || (needle < 0 && cv <= 0.6 && cv >= needle));
-      const alpha = lit ? 0.95 : (Math.abs(cv) <= S.tolerance ? 0.28 : 0.13);
-      c.strokeStyle = `rgba(${zoneColor(cv)},${alpha})`;
+      c.strokeStyle = `rgba(${zoneColor(v)},${Math.abs(v) <= S.tolerance ? 0.28 : 0.13})`;
       c.beginPath();
       c.arc(cx, cy, R, a0 + stepA * gap / 2, a1 - stepA * gap / 2);
       c.stroke();
     }
-
-    // Graduations
+    const lw = c.lineWidth;
     c.lineCap = 'round';
-    for (let cv = -50; cv <= 50; cv += 5) {
-      const a = centsToAngle(cv);
-      const major = cv % 25 === 0, mid = cv % 10 === 0;
-      const r0 = R - c.lineWidth * 0.5 - 8, len = major ? 14 : mid ? 9 : 5;
+    for (let v = -50; v <= 50; v += 5) {
+      const a = centsToAngle(v);
+      const major = v % 25 === 0, mid = v % 10 === 0;
+      const r0 = R - lw * 0.5 - 8, len = major ? 14 : mid ? 9 : 5;
       c.lineWidth = major ? 2 : 1.2;
       c.strokeStyle = major ? `rgba(${COLORS.ivory},0.7)` : `rgba(${COLORS.ivory},0.28)`;
       c.beginPath();
@@ -350,13 +396,43 @@
       c.stroke();
       if (major) {
         const rl = r0 - len - 14;
-        c.fillStyle = cv === 0 ? `rgba(${COLORS.gold},0.95)` : `rgba(${COLORS.ivory},0.55)`;
+        c.fillStyle = v === 0 ? `rgba(${COLORS.gold},0.95)` : `rgba(${COLORS.ivory},0.55)`;
         c.font = `700 ${Math.max(10, W * 0.024)}px Manrope, system-ui, sans-serif`;
         c.textAlign = 'center'; c.textBaseline = 'middle';
-        c.fillText(cv === 0 ? '0' : (cv > 0 ? '+' + cv : '−' + Math.abs(cv)), cx + Math.cos(a) * rl, cy + Math.sin(a) * rl);
+        c.fillText(v === 0 ? '0' : (v > 0 ? '+' + v : '−' + Math.abs(v)), cx + Math.cos(a) * rl, cy + Math.sin(a) * rl);
       }
     }
+  }
 
+  function drawGauge(voiced, inTune) {
+    const { W, H, dpr } = sizeCanvas(el.gauge);
+    const c = gctx;
+    drawStaticLayer(W, H, dpr);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, el.gauge.width, el.gauge.height);
+    c.drawImage(staticLayer.canvas, 0, 0);
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = W / 2, cy = H * 0.57, R = W * 0.37;
+    const needle = smooth.needle;
+
+    // Segments allumés entre 0 et l'aiguille
+    c.lineCap = 'butt';
+    c.lineWidth = Math.max(8, W * 0.028);
+    const gap = 0.12;
+    if (voiced) {
+      const from = Math.min(0, needle), to = Math.max(0, needle);
+      const i0 = Math.max(0, Math.floor(from + 50 - 0.6)), i1 = Math.min(99, Math.ceil(to + 50 + 0.6));
+      for (let i = i0; i <= i1; i++) {
+        const v = -50 + i + 0.5;
+        if (!((needle >= 0 && v >= -0.6 && v <= needle) || (needle < 0 && v <= 0.6 && v >= needle))) continue;
+        const a0 = centsToAngle(-50 + i), a1 = centsToAngle(-50 + i + 1);
+        const stepA = a1 - a0;
+        c.strokeStyle = `rgba(${zoneColor(v)},0.95)`;
+        c.beginPath();
+        c.arc(cx, cy, R, a0 + stepA * gap / 2, a1 - stepA * gap / 2);
+        c.stroke();
+      }
+    }
     // Anneau stroboscopique
     if (S.strobe) {
       const rs = R + c.lineWidth + W * 0.035;
@@ -378,8 +454,10 @@
     c.save();
     c.translate(cx, cy);
     c.rotate(a);
-    c.shadowBlur = voiced ? 22 : 0;
-    c.shadowColor = col;
+    if (voiced) {   // halo : aiguille élargie translucide (bien moins coûteux qu'un flou)
+      c.fillStyle = col.replace('rgb(', 'rgba(').replace(')', ',0.22)');
+      c.beginPath(); c.moveTo(tip + 3, 0); c.lineTo(R * 0.48, -9); c.lineTo(R * 0.48, 9); c.closePath(); c.fill();
+    }
     c.fillStyle = col;
     c.beginPath();
     c.moveTo(tip, 0);
@@ -395,7 +473,10 @@
     c.fill();
   }
 
+  let lastTrace = 0;
   function drawTrace(now) {
+    if (now - lastTrace < 33) return;
+    lastTrace = now;
     const { W, H, dpr } = sizeCanvas(el.trace);
     const c = tctx;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -542,6 +623,7 @@
     const i = inst();
     el.instrumentSelect.value = i.id;
     el.chipInstrument.textContent = i.label;
+    el.qbInstrumentLabel.textContent = i.label.replace(/\s*\(.*$/, '');
     el.transposeInfo.textContent = describeTransposition(i.transpose);
     el.toneInstrumentName.textContent = i.label;
     buildPcGrid();
@@ -576,6 +658,12 @@
     return MusicMath.midiToFreq(writtenMidi - inst().transpose, S.a4);
   }
   function refreshDrone() { if (tone.droneActive) tone.startDrone(selectedToneFreq(), S.timbre); }
+  function toggleDrone() {
+    getCtx().resume();
+    if (tone.droneActive) tone.stopDrone(); else tone.startDrone(selectedToneFreq(), S.timbre);
+    el.btnDrone.classList.toggle('active', tone.droneActive);
+    el.qbDrone.classList.toggle('on', tone.droneActive);
+  }
 
   /* --- Cible --- */
   function buildTargetPcSelect() {
@@ -588,6 +676,7 @@
     const pc = currentTargetPc();
     const t = inst().transpose;
     $$('button', el.targetMode).forEach(b => b.classList.toggle('active', b.dataset.mode === S.targetMode));
+    el.qbTarget.classList.toggle('active', S.targetMode === 'bb' && !challenge.active);
     el.customTarget.hidden = S.targetMode !== 'custom';
     if (challenge.active) {
       el.targetLabel.textContent = `Défi gamme · ${challenge.index + 1}/${challenge.pcs.length}`;
@@ -610,6 +699,7 @@
     if (from !== 'input') el.a4Input.value = S.a4;
     if (from !== 'range') el.a4Range.value = S.a4;
     el.chipA4.textContent = `La = ${S.a4.toLocaleString('fr-FR')} Hz`;
+    el.qbA4Value.textContent = S.a4.toLocaleString('fr-FR');
     $$('.preset').forEach(b => b.classList.toggle('active', +b.dataset.a4 === S.a4));
     refreshDrone();
     save();
@@ -636,15 +726,56 @@
     });
   }
   function refreshNames() { refreshInstrumentUI(); buildTargetPcSelect(); updateStats(); }
+  function openPanel(id) {
+    const d = document.getElementById(id);
+    d.open = true;
+    d.scrollIntoView({ behavior: 'smooth', block: isMobileLayout() ? 'start' : 'center' });
+  }
+  function applyPanelState() {
+    const mobile = isMobileLayout();
+    const defaults = { panelInstrument: true, panelReference: true, panelTone: false, panelGame: false, panelSettings: false };
+    $$('details.panel').forEach(d => {
+      d.open = mobile ? (S.panels && d.id in S.panels ? S.panels[d.id] : defaults[d.id]) : true;
+    });
+  }
 
   /* ------------------------------------------------------------------
      Liaisons d'événements
      ------------------------------------------------------------------ */
   function bind() {
     el.btnStart.addEventListener('click', startMic);
-    el.btnStop.addEventListener('click', () => { stopMic(); tone.stopDrone(); el.btnDrone.classList.remove('active'); });
-    el.chipInstrument.addEventListener('click', () => { $('#panelInstrument').scrollIntoView({ behavior: 'smooth', block: 'center' }); el.instrumentSelect.focus(); });
-    el.chipA4.addEventListener('click', () => { $('#panelReference').scrollIntoView({ behavior: 'smooth', block: 'center' }); el.a4Input.focus(); });
+    el.btnStop.addEventListener('click', () => { stopMic(); if (tone.droneActive) toggleDrone(); });
+    const openInstrument = () => {
+      openPanel('panelInstrument');
+      try { if (el.instrumentSelect.showPicker) el.instrumentSelect.showPicker(); else el.instrumentSelect.focus(); } catch (e) { el.instrumentSelect.focus(); }
+    };
+    el.chipInstrument.addEventListener('click', openInstrument);
+    el.qbInstrument.addEventListener('click', openInstrument);
+    el.chipA4.addEventListener('click', () => { openPanel('panelReference'); if (!isMobileLayout()) el.a4Input.focus(); });
+    el.qbA4.addEventListener('click', () => openPanel('panelReference'));
+    el.qbTarget.addEventListener('click', () => {
+      if (challenge.active) stopChallenge();
+      S.targetMode = S.targetMode === 'bb' ? 'auto' : 'bb'; save(); updateTargetLabel();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    el.qbPlayBb.addEventListener('click', () => el.btnPlayBb.click());
+    el.btnFullscreen.addEventListener('click', () => {
+      const d = document;
+      if (d.fullscreenElement) { d.exitFullscreen(); return; }
+      const root = d.documentElement;
+      const req = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (req) req.call(root, { navigationUI: 'hide' }).catch(() => {});
+    });
+    if (!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)) el.btnFullscreen.hidden = true;
+
+    // Panneaux repliables : état mémorisé, toujours ouverts sur grand écran
+    $$('details.panel').forEach(d => {
+      d.addEventListener('toggle', () => {
+        if (!isMobileLayout()) return;
+        S.panels = S.panels || {}; S.panels[d.id] = d.open; save();
+      });
+    });
+    window.matchMedia('(max-width: 1039px)').addEventListener('change', applyPanelState);
 
     el.instrumentSelect.addEventListener('change', () => { S.instrument = el.instrumentSelect.value; S.toneOctave = null; save(); refreshInstrumentUI(); refreshDrone(); });
 
@@ -669,11 +800,8 @@
     el.timbreSelect.value = S.timbre;
     el.timbreSelect.addEventListener('change', () => { S.timbre = el.timbreSelect.value; save(); if (tone.droneActive) tone.startDrone(selectedToneFreq(), S.timbre); });
     el.btnPlayNote.addEventListener('click', () => { getCtx().resume(); tone.play(selectedToneFreq(), S.timbre, 2); });
-    el.btnDrone.addEventListener('click', () => {
-      getCtx().resume();
-      if (tone.droneActive) { tone.stopDrone(); el.btnDrone.classList.remove('active'); }
-      else { tone.startDrone(selectedToneFreq(), S.timbre); el.btnDrone.classList.add('active'); }
-    });
+    el.btnDrone.addEventListener('click', toggleDrone);
+    el.qbDrone.addEventListener('click', toggleDrone);
     el.volume.value = S.volume; tone.setVolume(S.volume);
     el.volume.addEventListener('input', () => { S.volume = +el.volume.value; tone.setVolume(S.volume); save(); });
 
@@ -688,6 +816,9 @@
     el.gate.addEventListener('input', () => { S.gate = +el.gate.value; save(); });
     el.chkSound.checked = S.sounds;
     el.chkSound.addEventListener('change', () => { S.sounds = el.chkSound.checked; save(); });
+    el.chkHaptics.checked = S.haptics;
+    el.chkHaptics.addEventListener('change', () => { S.haptics = el.chkHaptics.checked; save(); });
+    if (!navigator.vibrate) el.chkHaptics.closest('.row').hidden = true;
     el.chkStrobe.checked = S.strobe;
     el.chkStrobe.addEventListener('change', () => { S.strobe = el.chkStrobe.checked; save(); });
     el.btnReset.addEventListener('click', () => {
@@ -700,7 +831,10 @@
       if (e.key === ' ') { e.preventDefault(); running ? stopMic() : startMic(); }
       if (e.key.toLowerCase() === 'b') el.btnDrone.click();
     });
-    document.addEventListener('visibilitychange', () => { if (document.hidden) lastFrame = 0; });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { lastFrame = 0; return; }
+      if (running) { requestWakeLock(); if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); }
+    });
   }
 
   /* ------------------------------------------------------------------
@@ -708,6 +842,7 @@
      ------------------------------------------------------------------ */
   buildInstrumentSelect();
   bind();
+  applyPanelState();
   setA4(S.a4);
   refreshInstrumentUI();
   updateStats();

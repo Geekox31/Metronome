@@ -1,9 +1,9 @@
 /* Service worker : mise en cache pour un usage hors ligne. */
-const CACHE = 'accordeur-harmonie-v1';
+const CACHE = 'accordeur-harmonie-v2';
 const ASSETS = [
   './', './index.html', './css/style.css',
-  './js/instruments.js', './js/pitch.js', './js/synth.js', './js/app.js',
-  './icon.svg', './manifest.webmanifest'
+  './js/instruments.js', './js/pitch.js', './js/pitch-worker.js', './js/synth.js', './js/app.js',
+  './icon.svg', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './manifest.webmanifest'
 ];
 
 self.addEventListener('install', e => {

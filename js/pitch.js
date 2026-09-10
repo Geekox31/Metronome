@@ -22,9 +22,10 @@ class YinDetector {
    * @param {Float32Array} buf   Signal temporel
    * @param {number} fmin        Fréquence minimale recherchée (Hz)
    * @param {number} fmax        Fréquence maximale recherchée (Hz)
+   * @param {number} gateRms     Niveau RMS minimal (linéaire) ; en dessous, pas d'analyse
    * @returns {{freq: number|null, clarity: number, rms: number}}
    */
-  detect(buf, fmin, fmax) {
+  detect(buf, fmin, fmax, gateRms = 0) {
     const N = buf.length;
     const sr = this.sampleRate;
 
@@ -32,6 +33,7 @@ class YinDetector {
     let sum = 0;
     for (let i = 0; i < N; i++) sum += buf[i] * buf[i];
     const rms = Math.sqrt(sum / N);
+    if (rms < gateRms) return { freq: null, clarity: 0, rms };
 
     const tauMax = Math.min(Math.floor(sr / fmin), N >> 1);
     const tauMin = Math.max(2, Math.floor(sr / fmax));

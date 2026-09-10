@@ -26,7 +26,26 @@ dans le navigateur grâce à la **Web Audio API**.
   justesse moyenne notée de A+ à E, **défi gamme** chronométré avec record, confettis et carillon.
 - **Réglages** : tolérance ± 3 / 5 / 10 ¢, sensibilité du micro, Do Ré Mi / C D E, ♭ / ♯,
   numérotation des octaves française (La3 = 440) ou scientifique (A4 = 440). Tout est mémorisé.
-- **Application installable** (manifeste PWA + service worker) et utilisable hors ligne.
+- **Application installable** (manifeste PWA, icônes Android, service worker) et utilisable hors ligne.
+
+## Pensé pour le smartphone
+
+L’application est conçue d’abord pour un usage sur téléphone (Android et iPhone) :
+
+- **Interface fluide** : la détection YIN tourne dans un Web Worker, hors du fil principal, et la
+  jauge est rendue à partir d’une couche statique en cache (aucun flou coûteux). Mesuré à
+  60 images/s dans un profil mobile.
+- **Écran maintenu allumé** pendant l’accordage (API Wake Lock), reprise automatique du micro
+  au retour au premier plan.
+- **Barre d’actions rapides** en bas de l’écran : instrument, diapason, cible Si♭, écoute du Si♭,
+  bourdon. Panneaux repliables dont l’état est mémorisé.
+- **Cibles tactiles** d’au moins 44 px, curseurs agrandis, champs à 16 px (pas de zoom
+  intempestif sur iOS), pas de surbrillance au toucher, zones sûres (encoche, barre de geste).
+- **Portrait et paysage** : la jauge se dimensionne selon la hauteur disponible ; en paysage,
+  jauge et panneaux s’affichent côte à côte.
+- **Vibration** courte à chaque note validée (désactivable), bouton plein écran.
+- **Installation sur l’écran d’accueil** : Chrome Android propose « Ajouter à l’écran d’accueil »
+  (icônes 192 / 512 px, version maskable) ; sur iOS, Partager → « Sur l’écran d’accueil ».
 
 ## Utilisation
 
@@ -51,11 +70,12 @@ index.html            Page unique
 css/style.css         Thème sombre, or et vert, responsive
 js/instruments.js     Instruments, transpositions, tessitures, conseils d’accord
 js/pitch.js           Détecteur YIN + utilitaires musicaux
+js/pitch-worker.js    Web Worker exécutant la détection hors du fil principal
 js/synth.js           Générateur de sons (synthèse additive)
 js/app.js             Application : audio, rendu canvas, jeu, réglages
 manifest.webmanifest  Manifeste PWA
 sw.js                 Service worker (cache hors ligne)
-icon.svg              Icône
+icon.svg, icon-*.png  Icônes (SVG, PNG 192 / 512, maskable)
 ```
 
 ## Compatibilité
