@@ -1,5 +1,12 @@
 # Déploiement automatique de l'accordeur sur GitHub Pages.
-# À activer une seule fois : Settings → Pages → Source : « GitHub Actions ».
+#
+# PRÉREQUIS, à faire une seule fois à la main (le jeton du workflow n'a pas le
+# droit de créer le site Pages lui-même : « Resource not accessible by integration ») :
+#   1. Le dépôt doit être PUBLIC. Pages sur un dépôt privé exige un abonnement
+#      payant, et le site reste alors réservé aux membres du dépôt.
+#      Settings → General → Danger Zone → Change repository visibility → Public.
+#   2. Settings → Pages → Build and deployment → Source : « GitHub Actions ».
+# Ensuite, chaque push sur la branche par défaut redéploie le site.
 name: Déployer sur GitHub Pages
 
 on:
