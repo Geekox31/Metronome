@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="description" content="Accordeur chromatique de précision pour orchestre d’harmonie : transposition automatique par instrument, diapason réglable, générateur de sons, défis ludiques.">
+  <title>Accordeur d’Harmonie</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="24" cy="24" r="22" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".5"/>
+        <path d="M24 8v18M24 26l-9 12M24 26l9 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="24" cy="26" r="2.6" fill="currentColor"/>
+      </svg>
+      <div>
+        <h1>Accordeur d’Harmonie</h1>
+        <p class="tagline">Précision chromatique · transposition automatique · diapason réglable</p>
+      </div>
+    </div>
+    <div class="chips">
+      <button class="chip" id="chipInstrument" title="Changer d’instrument">Clarinette (Si♭)</button>
+      <button class="chip chip-gold" id="chipA4" title="Régler le diapason">La = 442 Hz</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <!-- ================= ACCORDEUR ================= -->
+    <section class="card tuner" id="tunerCard">
+      <div class="tuner-head">
+        <div class="target-label" id="targetLabel">Détection automatique</div>
+        <div class="level-meter" title="Niveau d’entrée du micro">
+          <div class="level-bar"><i id="levelFill"></i><b id="levelGate"></b></div>
+        </div>
+      </div>
+
+      <div class="gauge-wrap">
+        <canvas id="gauge"></canvas>
+        <canvas id="fx"></canvas>
+        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="hold-track" cx="50" cy="50" r="46"/>
+          <circle class="hold-fill" id="holdFill" cx="50" cy="50" r="46"/>
+        </svg>
+        <div class="readout" id="readout">
+          <div class="note-line">
+            <span class="note" id="noteName">—</span><sup class="octave" id="noteOctave"></sup>
+          </div>
+          <div class="note-sub" id="noteConcert">note écrite · son réel</div>
+          <div class="cents" id="centsText"><span id="centsValue">0</span><small>¢</small></div>
+          <div class="hz" id="hzText">— Hz</div>
+        </div>
+        <div class="verdict" id="verdict"></div>
+      </div>
+
+      <div class="advice" id="advice">Jouez une note tenue, bien soutenue…</div>
+
+      <div class="trace-wrap">
+        <div class="trace-legend"><span>+50 ¢</span><span>0</span><span>−50 ¢</span></div>
+        <canvas id="trace" height="120"></canvas>
+      </div>
+
+      <div class="start-overlay" id="startOverlay">
+        <div class="start-inner">
+          <div class="start-title">Prêt à vous accorder&nbsp;?</div>
+          <p>L’accordeur analyse le son de votre micro en temps réel. Rien n’est enregistré ni envoyé.</p>
+          <button class="btn btn-primary btn-lg" id="btnStart">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+            Activer le micro
+          </button>
+          <div class="start-error" id="startError" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= PANNEAUX ================= -->
+    <aside class="panels">
+
+      <!-- Instrument -->
+      <section class="card panel" id="panelInstrument">
+        <h2><span class="num">1</span> Mon instrument</h2>
+        <select id="instrumentSelect" class="select" aria-label="Instrument"></select>
+        <p class="hint" id="transposeInfo"></p>
+      </section>
+
+      <!-- Référence -->
+      <section class="card panel" id="panelReference">
+        <h2><span class="num">2</span> Diapason &amp; cible</h2>
+        <div class="row">
+          <label for="a4Range">La de référence</label>
+          <div class="a4-value"><input type="number" id="a4Input" min="415" max="466" step="0.1" value="442"> Hz</div>
+        </div>
+        <input type="range" id="a4Range" min="415" max="466" step="0.5" value="442" aria-label="La de référence">
+        <div class="btn-row">
+          <button class="btn btn-sm preset" data-a4="440">440</button>
+          <button class="btn btn-sm preset" data-a4="441">441</button>
+          <button class="btn btn-sm preset" data-a4="442">442</button>
+          <button class="btn btn-sm preset" data-a4="443">443</button>
+          <button class="btn btn-sm" id="btnCalibrate" title="Prend la note entendue comme référence exacte (ex. le La du hautbois)">Calibrer sur la note entendue</button>
+        </div>
+
+        <div class="row row-top">
+          <label>Note cible</label>
+        </div>
+        <div class="segmented" id="targetMode">
+          <button data-mode="auto" class="active">Auto</button>
+          <button data-mode="bb">Si♭ d’accord</button>
+          <button data-mode="a">La</button>
+          <button data-mode="custom">Choisir</button>
+        </div>
+        <div class="custom-target" id="customTarget" hidden>
+          <label for="targetPc">Note réelle visée :</label>
+          <select id="targetPc" class="select select-inline"></select>
+        </div>
+        <p class="hint" id="targetHint"></p>
+      </section>
+
+      <!-- Générateur -->
+      <section class="card panel" id="panelTone">
+        <h2><span class="num">3</span> Son de référence</h2>
+        <div class="btn-row">
+          <button class="btn" id="btnPlayA">▶ La (diapason)</button>
+          <button class="btn btn-gold" id="btnPlayBb">▶ Si♭ d’accord</button>
+        </div>
+        <p class="hint" style="margin-top:12px">Notes écrites pour <b id="toneInstrumentName">votre instrument</b> :</p>
+        <div class="pc-grid" id="pcGrid"></div>
+        <div class="row">
+          <label for="toneOctave">Octave</label>
+          <select id="toneOctave" class="select select-inline"></select>
+          <label for="timbreSelect">Timbre</label>
+          <select id="timbreSelect" class="select select-inline"></select>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="btnPlayNote">▶ Jouer 2 s</button>
+          <button class="btn btn-toggle" id="btnDrone">◉ Bourdon</button>
+        </div>
+        <div class="row">
+          <label for="volume">Volume</label>
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="0.5" style="flex:1">
+        </div>
+        <p class="hint">Astuce : avec un casque, le bourdon ne perturbe pas la détection.</p>
+      </section>
+
+      <!-- Jeu -->
+      <section class="card panel panel-game" id="panelGame">
+        <h2><span class="num">4</span> Entraînement</h2>
+        <div class="stats">
+          <div class="stat"><span class="stat-value" id="statStreak">0</span><span class="stat-label">Série</span></div>
+          <div class="stat"><span class="stat-value" id="statBest">0</span><span class="stat-label">Record</span></div>
+          <div class="stat"><span class="stat-value" id="statAccuracy">—</span><span class="stat-label">Justesse moy.</span></div>
+          <div class="stat"><span class="stat-value grade" id="statGrade">—</span><span class="stat-label">Note</span></div>
+        </div>
+        <p class="hint">Tenez une note juste (± tolérance) pendant 2 s pour valider et allonger votre série.</p>
+        <div class="challenge" id="challenge">
+          <div class="challenge-head">
+            <b>Défi gamme</b>
+            <span class="hint" id="challengeBest"></span>
+          </div>
+          <div class="challenge-steps" id="challengeSteps"></div>
+          <div class="challenge-current" id="challengeCurrent" hidden></div>
+          <div class="btn-row">
+            <button class="btn btn-gold" id="btnChallenge">Lancer le défi</button>
+            <button class="btn" id="btnChallengeStop" hidden>Abandonner</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Réglages -->
+      <section class="card panel" id="panelSettings">
+        <h2><span class="num">5</span> Réglages</h2>
+        <div class="row">
+          <label for="tolerance">Tolérance</label>
+          <div class="segmented small" id="toleranceSeg">
+            <button data-val="3">± 3 ¢</button>
+            <button data-val="5" class="active">± 5 ¢</button>
+            <button data-val="10">± 10 ¢</button>
+          </div>
+        </div>
+        <div class="row">
+          <label for="gate">Sensibilité du micro</label>
+          <input type="range" id="gate" min="-75" max="-25" step="1" value="-58" style="flex:1" aria-label="Sensibilité">
+        </div>
+        <div class="row">
+          <label>Noms des notes</label>
+          <div class="segmented small" id="notationSeg">
+            <button data-val="fr" class="active">Do Ré Mi</button>
+            <button data-val="int">C D E</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Altérations</label>
+          <div class="segmented small" id="accidentalSeg">
+            <button data-val="flat" class="active">♭</button>
+            <button data-val="sharp">♯</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Octaves</label>
+          <div class="segmented small" id="octaveSeg">
+            <button data-val="fr" class="active">La3 = 440</button>
+            <button data-val="sci">A4 = 440</button>
+          </div>
+        </div>
+        <div class="row">
+          <label for="chkSound">Sons de réussite</label>
+          <input type="checkbox" id="chkSound" checked class="switch">
+        </div>
+        <div class="row">
+          <label for="chkStrobe">Anneau stroboscopique</label>
+          <input type="checkbox" id="chkStrobe" checked class="switch">
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-sm" id="btnStop">Couper le micro</button>
+          <button class="btn btn-sm" id="btnReset">Réinitialiser les statistiques</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <p>Fonctionne hors ligne dans le navigateur · aucun son n’est enregistré · Web Audio API</p>
+  </footer>
+
+  <script src="js/instruments.js"></script>
+  <script src="js/pitch.js"></script>
+  <script src="js/synth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
