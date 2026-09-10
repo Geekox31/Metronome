@@ -849,7 +849,9 @@
   updateReadout(false, false);
   requestAnimationFrame(loop);
 
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  // isSecureContext couvre HTTPS ainsi que localhost et 127.0.0.1, où le
+  // service worker est autorisé sans certificat.
+  if ('serviceWorker' in navigator && window.isSecureContext) {
     navigator.serviceWorker.register('sw.js').catch(() => { /* hors ligne non disponible */ });
   }
 })();
