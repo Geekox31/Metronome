@@ -1,21 +1,22 @@
 # Déploiement automatique de l'accordeur sur GitHub Pages.
 #
-# PRÉREQUIS, à faire une seule fois à la main (le jeton du workflow n'a pas le
-# droit de créer le site Pages lui-même : « Resource not accessible by integration ») :
+# PRÉREQUIS, à faire une seule fois à la main. Le jeton du workflow n'a pas le
+# droit de créer le site Pages lui-même (« Resource not accessible by
+# integration »), le workflow ne peut donc pas s'en charger :
 #   1. Le dépôt doit être PUBLIC. Pages sur un dépôt privé exige un abonnement
 #      payant, et le site reste alors réservé aux membres du dépôt.
 #      Settings → General → Danger Zone → Change repository visibility → Public.
 #   2. Settings → Pages → Build and deployment → Source : « GitHub Actions ».
-# Ensuite, chaque push sur la branche par défaut redéploie le site.
+#
+# Tant que ces deux points ne sont pas faits, le workflow se termine en succès
+# et affiche la marche à suivre dans le résumé, au lieu de passer au rouge.
+# Une fois Pages activé, chaque push sur la branche par défaut publie le site.
 name: Déployer sur GitHub Pages
 
 on:
   push:
     branches: [main, master, claude/orchestra-tuner-app-1fxuza]
   workflow_dispatch:
-
-# Prérequis côté dépôt : GitHub Pages n'est disponible que sur un dépôt public
-# (ou avec un abonnement GitHub Pro / Team / Enterprise pour un dépôt privé).
 
 permissions:
   contents: read
@@ -27,18 +28,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  # Vérifie que le site Pages existe avant de tenter quoi que ce soit.
+  verifier:
+    runs-on: ubuntu-latest
+    outputs:
+      pages_actif: ${{ steps.sonde.outputs.actif }}
+    steps:
+      - name: Le site Pages est-il configuré ?
+        id: sonde
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPOT: ${{ github.repository }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$DEPOT/pages" || echo 000)
+          echo "Réponse de l'API Pages : HTTP $code"
+          if [ "$code" = "200" ]; then
+            echo "actif=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "actif=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## GitHub Pages n'est pas encore activé"
+              echo ""
+              echo "Le site n'a pas été publié. Deux réglages à faire une seule fois :"
+              echo ""
+              echo "1. Rendre le dépôt public : **Settings → General → Danger Zone →"
+              echo "   Change repository visibility → Public**."
+              echo "   (Pages sur un dépôt privé demande un abonnement payant et le"
+              echo "   site reste réservé aux membres du dépôt.)"
+              echo "2. **Settings → Pages → Build and deployment → Source :"
+              echo "   GitHub Actions**."
+              echo ""
+              echo "Relancez ensuite ce workflow : le site sera publié sur"
+              echo "https://${DEPOT%%/*}.github.io/${DEPOT##*/}/"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  deployer:
+    needs: verifier
+    if: needs.verifier.outputs.pages_actif == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      # enablement: true active GitHub Pages sur le dépôt si ce n'est pas déjà fait,
-      # au lieu d'échouer avec « Get Pages site failed / Not Found ».
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
